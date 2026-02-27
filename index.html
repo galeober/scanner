@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Escáner de Módems</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f4f4f4; }
+        #reader { width: 100%; max-width: 500px; margin: auto; }
+        button { padding: 10px 20px; font-size: 16px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h2>Escaneo de Instalación</h2>
+    <div id="reader"></div>
+    <p id="status">Iniciando cámara...</p>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Abre la web app a pantalla completa
+
+        const html5QrCode = new Html5Qrcode("reader");
+        
+        const config = { fps: 10, qrbox: { width: 280, height: 150 } };
+
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            config,
+            (decodedText) => {
+                // ÉXITO: Enviamos el código al bot y cerramos
+                tg.sendData(decodedText); 
+                tg.close();
+            },
+            (errorMessage) => {
+                // Error de escaneo (normalmente mientras busca)
+                document.getElementById("status").innerText = "Buscando código...";
+            }
+        ).catch(err => {
+            document.getElementById("status").innerText = "Error: " + err;
+        });
+    </script>
+</body>
+</html>
