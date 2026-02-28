@@ -3,78 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner ONT</title>
+    <title>Scanner ONT Piquillin</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { font-family: sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; text-align: center; }
-        #reader { width: 100%; max-width: 500px; margin: auto; background: white; border-radius: 8px; overflow: hidden; }
-        .info { margin-top: 20px; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .status { color: #666; font-size: 0.9em; margin-bottom: 10px; }
-        #btn-enviar { background: #0088cc; color: white; border: none; padding: 12px 24px; border-radius: 5px; font-size: 16px; display: none; width: 100%; cursor: pointer; }
+        body { font-family: -apple-system, sans-serif; background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
+        #reader { width: 100%; max-width: 450px; margin: 15px auto; border-radius: 12px; overflow: hidden; border: 1px solid #444; }
+        .card { background: #2a2a2a; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .btn { background: #0088cc; color: white; border: none; padding: 16px; border-radius: 8px; width: 100%; font-size: 18px; font-weight: bold; cursor: pointer; display: none; margin-top: 15px; }
+        .status { color: #00e676; font-size: 14px; margin: 10px 0; }
     </style>
 </head>
 <body>
-
-    <h3>Registro de Equipo</h3>
-    <div id="reader"></div>
-
-    <div class="info">
-        <p id="status-gps" class="status">📍 Obteniendo ubicación GPS...</p>
-        <p id="status-scan" class="status">📷 Esperando código de barras...</p>
-        <button id="btn-enviar" onclick="enviarDatos()">✅ Confirmar y Enviar</button>
+    <div class="card">
+        <h3>Escáner de Instalación</h3>
+        <div id="reader"></div>
+        <p id="status-text">Esperando cámara y GPS...</p>
+        <button id="btn-finish" class="btn" onclick="enviarDatos()">✅ REGISTRAR EQUIPO</button>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand(); // Expandir la app al máximo
+        tg.expand();
 
-        let datos = {
-            serial: null,
-            lat: null,
-            lon: null
-        };
+        let res = { sn: "", lat: "", lon: "" };
 
-        // 1. Obtener coordenadas GPS
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    datos.lat = pos.coords.latitude;
-                    datos.lon = pos.coords.longitude;
-                    document.getElementById('status-gps').innerText = `📍 Ubicación capturada (${datos.lat.toFixed(4)}, ${datos.lon.toFixed(4)})`;
-                    validarProgreso();
-                },
-                (err) => {
-                    document.getElementById('status-gps').innerText = "⚠️ Error GPS: Asegúrate de activar la ubicación";
-                    console.error(err);
-                }
-            );
-        }
+        // 1. Capturar GPS inmediatamente
+        navigator.geolocation.getCurrentPosition(
+            (p) => {
+                res.lat = p.coords.latitude;
+                res.lon = p.coords.longitude;
+                checkReady();
+            },
+            (err) => alert("Por favor, activa el GPS para georreferenciar al cliente.")
+        );
 
-        // 2. Configurar Escáner
-        const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 10, qrbox: { width: 250, height: 150 } };
-
-        html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-            datos.serial = decodedText;
-            document.getElementById('status-scan').innerText = `📟 Serial: ${decodedText}`;
-            tg.HapticFeedback.notificationOccurred('success');
-            validarProgreso();
-        });
-
-        function validarProgreso() {
-            // Si ya tenemos el serial, permitimos enviar (el GPS es ideal pero opcional según tu lógica)
-            if (datos.serial) {
-                document.getElementById('btn-enviar').style.display = 'block';
+        // 2. Iniciar Escáner de Código de Barras
+        const scanner = new Html5Qrcode("reader");
+        scanner.start(
+            { facingMode: "environment" }, 
+            { fps: 10, qrbox: { width: 250, height: 150 } },
+            (text) => {
+                res.sn = text;
+                document.getElementById("status-text").innerText = "📟 ONT detectada: " + text;
+                document.getElementById("btn-finish").style.display = "block";
+                tg.HapticFeedback.notificationOccurred('success');
             }
+        ).catch(err => console.error("Error cámara:", err));
+
+        function checkReady() {
+            if(res.lat) console.log("GPS listo");
         }
 
         function enviarDatos() {
-            if (!datos.serial) return alert("Primero escanea el código");
+            // El formato que tu bot ya espera en la línea 1058: SCAN_serial_lat_lon
+            const payload = `SCAN_${res.sn}_${res.lat}_${res.lon}`;
             
-            // Enviar JSON al bot y cerrar WebApp
-            // IMPORTANTE: sendData solo funciona con ReplyKeyboardMarkup
-            tg.sendData(JSON.stringify(datos));
+            // IMPORTANTE: Pon aquí el nombre de tu bot SIN el @
+            const botUsername = "Agente_pqnetbot"; 
+            
+            const deepLink = `https://t.me/${botUsername}?start=${payload}`;
+            
+            tg.openTelegramLink(deepLink);
+            tg.close();
         }
     </script>
 </body>
