@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Escáner de ONT</title>
+   
+    <meta name="bot-token" content="8618696566:AAHxkRZmSCUkqzae0yR-X06q6lszVIu0vVE">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -128,16 +130,12 @@
         let gpsListo        = false;
 
         // ── Escaneo ──────────────────────────────────────────────────────────
-        // qrbox adaptado al ancho real del dispositivo
-        const vw     = Math.min(window.innerWidth - 32, 420);
-        const qbW    = Math.floor(vw * 0.85);
-        const qbH    = Math.floor(qbW * 0.45);
-
-        const html5QrCode = new Html5Qrcode("reader", { verbose: false });
+        const html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 10, qrbox: { width: 280, height: 150 } };
 
         html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: qbW, height: qbH } },
+            config,
             (decodedText) => {
                 // Código detectado: detener cámara y mostrar tarjeta
                 html5QrCode.stop().catch(() => {});
@@ -156,8 +154,7 @@
                 document.getElementById("status").innerText = "🔍 Buscando código…";
             }
         ).catch(err => {
-            const msg = (err && err.message) ? err.message : String(err);
-            document.getElementById("status").innerText = "❌ Error cámara: " + msg;
+            document.getElementById("status").innerText = "❌ Error cámara: " + err;
         });
 
         // ── GPS ───────────────────────────────────────────────────────────────
@@ -206,17 +203,62 @@
         }
 
         // ── Envío ─────────────────────────────────────────────────────────────
-        document.getElementById("btn-enviar").addEventListener("click", () => {
+        document.getElementById("btn-enviar").addEventListener("click", async () => {
             if (!serialEscaneado) return;
 
-            const payload = {
+            const btn = document.getElementById("btn-enviar");
+            btn.disabled  = true;
+            btn.innerText = "⏳ Enviando…";
+
+            const payload = JSON.stringify({
                 serial: serialEscaneado,
                 lat:    gpsData ? gpsData.lat : null,
                 lon:    gpsData ? gpsData.lon : null,
-            };
+            });
 
-            tg.sendData(JSON.stringify(payload));
-            tg.close();
+            // Intentar sendData primero (funciona si la WebApp fue abierta por el bot)
+            try {
+                tg.sendData(payload);
+                tg.close();
+                return;
+            } catch(e) {
+                console.warn("sendData falló, usando fallback:", e);
+            }
+
+            // Fallback: enviar via API de Telegram directamente
+            const chatId  = tg.initDataUnsafe?.user?.id;
+            const botToken = document.querySelector("meta[name=bot-token]")?.content || "";
+
+            if (!chatId || !botToken) {
+                document.getElementById("status").innerText = "❌ No se pudo obtener el chat ID";
+                btn.disabled  = false;
+                btn.innerText = "📤 Enviar al bot";
+                return;
+            }
+
+            // Mensaje especial que el bot reconoce como scan
+            const msgText = "SCAN_DATA:" + payload;
+
+            try {
+                const res = await fetch(
+                    `https://api.telegram.org/bot${botToken}/sendMessage`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ chat_id: chatId, text: msgText }),
+                    }
+                );
+                const json = await res.json();
+                if (json.ok) {
+                    tg.close();
+                } else {
+                    throw new Error(json.description || "Error API");
+                }
+            } catch(e) {
+                document.getElementById("status").innerText = "❌ Error enviando: " + e.message;
+                btn.disabled  = false;
+                btn.innerText = "📤 Enviar al bot";
+            }
         });
     </script>
 </body>
