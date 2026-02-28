@@ -99,7 +99,7 @@
         }
 
         // ── CERRAR CON DELAY para poder leer el log ───────────────────────────
-        function cerrarConDelay(seg = 5) {
+        function cerrarConDelay(seg = 10) {
             log("⏳ Cerrando en " + seg + " segundos… (leé el log)");
             setTimeout(() => tg.close(), seg * 1000);
         }
