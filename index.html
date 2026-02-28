@@ -2,42 +2,216 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Escáner de Módems</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escáner de ONT</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f4f4f4; }
-        #reader { width: 100%; max-width: 500px; margin: auto; }
-        button { padding: 10px 20px; font-size: 16px; margin-top: 20px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--tg-theme-bg-color, #f4f4f4);
+            color: var(--tg-theme-text-color, #222);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 16px;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            margin-bottom: 6px;
+            color: var(--tg-theme-text-color, #222);
+        }
+
+        #reader {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 12px 0;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+        }
+
+        #status {
+            font-size: 0.95rem;
+            color: var(--tg-theme-hint-color, #888);
+            margin: 8px 0 16px;
+            min-height: 24px;
+        }
+
+        /* ── Tarjeta de resultado ── */
+        #result-card {
+            display: none;
+            background: var(--tg-theme-secondary-bg-color, #fff);
+            border-radius: 12px;
+            padding: 16px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            text-align: left;
+        }
+
+        #result-card h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            color: var(--tg-theme-text-color, #222);
+        }
+
+        .field { margin-bottom: 10px; }
+        .field label {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--tg-theme-hint-color, #888);
+            display: block;
+            margin-bottom: 2px;
+        }
+        .field span {
+            font-size: 0.95rem;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .gps-ok   { color: #27ae60; }
+        .gps-wait { color: #e67e22; }
+        .gps-err  { color: #e74c3c; }
+
+        #btn-enviar {
+            display: none;
+            margin-top: 16px;
+            width: 100%;
+            max-width: 420px;
+            padding: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            background: var(--tg-theme-button-color, #2ea6ff);
+            color: var(--tg-theme-button-text-color, #fff);
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        #btn-enviar:disabled { opacity: 0.5; cursor: not-allowed; }
+        #btn-enviar:active   { opacity: 0.8; }
     </style>
 </head>
 <body>
-    <h2>Escaneo de Instalación</h2>
+    <h2>📷 Escanear ONT</h2>
+
     <div id="reader"></div>
     <p id="status">Iniciando cámara...</p>
 
+    <!-- Tarjeta que aparece tras el escaneo -->
+    <div id="result-card">
+        <h3>✅ Código detectado</h3>
+        <div class="field">
+            <label>Serial escaneado</label>
+            <span id="val-serial">—</span>
+        </div>
+        <div class="field">
+            <label>📍 Ubicación GPS</label>
+            <span id="val-gps" class="gps-wait">Obteniendo ubicación…</span>
+        </div>
+    </div>
+
+    <button id="btn-enviar" disabled>⏳ Esperando GPS…</button>
+
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand(); // Abre la web app a pantalla completa
+        tg.expand();
 
+        let serialEscaneado = null;
+        let gpsData         = null;   // { lat, lon } o null
+        let gpsListo        = false;
+
+        // ── Escaneo ──────────────────────────────────────────────────────────
         const html5QrCode = new Html5Qrcode("reader");
-        
         const config = { fps: 10, qrbox: { width: 280, height: 150 } };
 
         html5QrCode.start(
-            { facingMode: "environment" }, 
+            { facingMode: "environment" },
             config,
             (decodedText) => {
-                // ÉXITO: Enviamos el código al bot y cerramos
-                tg.sendData(decodedText); 
-                tg.close();
+                // Código detectado: detener cámara y mostrar tarjeta
+                html5QrCode.stop().catch(() => {});
+
+                serialEscaneado = decodedText.trim();
+                document.getElementById("val-serial").innerText = serialEscaneado;
+                document.getElementById("result-card").style.display = "block";
+                document.getElementById("btn-enviar").style.display  = "block";
+                document.getElementById("status").innerText = "";
+                document.getElementById("reader").style.display = "none";
+
+                // Iniciar captura GPS en paralelo
+                capturarGPS();
             },
-            (errorMessage) => {
-                // Error de escaneo (normalmente mientras busca)
-                document.getElementById("status").innerText = "Buscando código...";
+            () => {
+                document.getElementById("status").innerText = "🔍 Buscando código…";
             }
         ).catch(err => {
-            document.getElementById("status").innerText = "Error: " + err;
+            document.getElementById("status").innerText = "❌ Error cámara: " + err;
+        });
+
+        // ── GPS ───────────────────────────────────────────────────────────────
+        function capturarGPS() {
+            if (!navigator.geolocation) {
+                mostrarGPS("⚠️ GPS no disponible en este dispositivo", "gps-err");
+                marcarGPSListo(null);
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude.toFixed(7);
+                    const lon = pos.coords.longitude.toFixed(7);
+                    gpsData   = { lat: parseFloat(lat), lon: parseFloat(lon) };
+                    const link = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=18`;
+                    mostrarGPS(`${lat}, ${lon} ✅`, "gps-ok");
+                    // Mostrar link clickeable
+                    const gpsEl = document.getElementById("val-gps");
+                    gpsEl.innerHTML = `<a href="${link}" target="_blank">${lat}, ${lon} 🗺️</a>`;
+                    marcarGPSListo(gpsData);
+                },
+                (err) => {
+                    const msg = err.code === 1
+                        ? "⚠️ Permiso de ubicación denegado"
+                        : "⚠️ No se pudo obtener GPS";
+                    mostrarGPS(msg, "gps-err");
+                    marcarGPSListo(null);
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        }
+
+        function mostrarGPS(texto, clase) {
+            const el = document.getElementById("val-gps");
+            el.className = clase;
+            el.innerText = texto;
+        }
+
+        function marcarGPSListo(coords) {
+            gpsListo = true;
+            gpsData  = coords;
+            const btn = document.getElementById("btn-enviar");
+            btn.disabled   = false;
+            btn.innerText  = "📤 Enviar al bot";
+        }
+
+        // ── Envío ─────────────────────────────────────────────────────────────
+        document.getElementById("btn-enviar").addEventListener("click", () => {
+            if (!serialEscaneado) return;
+
+            const payload = {
+                serial: serialEscaneado,
+                lat:    gpsData ? gpsData.lat : null,
+                lon:    gpsData ? gpsData.lon : null,
+            };
+
+            tg.sendData(JSON.stringify(payload));
+            tg.close();
         });
     </script>
 </body>
