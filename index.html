@@ -3,23 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner ONT Piquillin</title>
+    <title>Scanner Piquillin Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
-        #reader { width: 100%; max-width: 450px; margin: 15px auto; border-radius: 12px; overflow: hidden; border: 1px solid #444; }
-        .card { background: #2a2a2a; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        .btn { background: #0088cc; color: white; border: none; padding: 16px; border-radius: 8px; width: 100%; font-size: 18px; font-weight: bold; cursor: pointer; display: none; margin-top: 15px; }
-        .status { color: #00e676; font-size: 14px; margin: 10px 0; }
+        body { font-family: sans-serif; background: #000; color: white; margin: 0; padding: 10px; overflow: hidden; }
+        
+        /* Contenedor del scanner */
+        #reader { width: 100%; border: none !important; }
+        
+        /* Efecto de máscara y escaneo */
+        .scanner-container { position: relative; width: 100%; max-width: 400px; margin: auto; border-radius: 15px; overflow: hidden; }
+        
+        /* Línea de láser animada */
+        .laser {
+            position: absolute; top: 50%; left: 10%; width: 80%; height: 2px;
+            background-color: #ff0000; box-shadow: 0 0 8px #ff0000;
+            z-index: 10; animation: scanning 2s infinite ease-in-out;
+        }
+
+        @keyframes scanning {
+            0% { top: 20%; }
+            50% { top: 80%; }
+            100% { top: 20%; }
+        }
+
+        .info-card { background: #1a1a1a; padding: 15px; border-radius: 0 0 15px 15px; border-top: 2px solid #333; }
+        .btn { background: #0088cc; color: white; border: none; padding: 15px; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; display: none; margin-top: 10px; }
+        #status { font-size: 14px; color: #aaa; margin-bottom: 5px; }
+        #result-sn { color: #00ff00; font-weight: bold; font-family: monospace; font-size: 18px; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h3>Escáner de Instalación</h3>
+
+    <div class="scanner-container">
         <div id="reader"></div>
-        <p id="status-text">Esperando cámara y GPS...</p>
-        <button id="btn-finish" class="btn" onclick="enviarDatos()">✅ REGISTRAR EQUIPO</button>
+        <div class="laser"></div>
+    </div>
+
+    <div class="info-card">
+        <p id="status">Apunte al código de 16 caracteres</p>
+        <p id="result-sn"></p>
+        <button id="btn-send" class="btn" onclick="enviarAlBot()">✅ REGISTRAR EQUIPO</button>
     </div>
 
     <script>
@@ -28,43 +53,49 @@
 
         let res = { sn: "", lat: "", lon: "" };
 
-        // 1. Capturar GPS inmediatamente
-        navigator.geolocation.getCurrentPosition(
-            (p) => {
-                res.lat = p.coords.latitude;
-                res.lon = p.coords.longitude;
-                checkReady();
-            },
-            (err) => alert("Por favor, activa el GPS para georreferenciar al cliente.")
-        );
+        // Obtener GPS
+        navigator.geolocation.getCurrentPosition(p => {
+            res.lat = p.coords.latitude;
+            res.lon = p.coords.longitude;
+        });
 
-        // 2. Iniciar Escáner de Código de Barras
         const scanner = new Html5Qrcode("reader");
-        scanner.start(
-            { facingMode: "environment" }, 
-            { fps: 10, qrbox: { width: 250, height: 150 } },
-            (text) => {
+        
+        // Configuración de escaneo (QRBOX alargado para códigos de barra)
+        const config = { 
+            fps: 20, 
+            qrbox: { width: 300, height: 120 },
+            aspectRatio: 1.0
+        };
+
+        scanner.start({ facingMode: "environment" }, config, (text) => {
+            // FILTRO DE 16 CARACTERES
+            if (text.length === 16) {
                 res.sn = text;
-                document.getElementById("status-text").innerText = "📟 ONT detectada: " + text;
-                document.getElementById("btn-finish").style.display = "block";
+                document.getElementById("result-sn").innerText = text;
+                document.getElementById("status").innerText = "¡Código válido detectado!";
+                document.getElementById("btn-send").style.display = "block";
+                
+                // Vibración de éxito
                 tg.HapticFeedback.notificationOccurred('success');
+                
+                // Opcional: detener el scanner para ahorrar batería tras éxito
+                // scanner.stop(); 
+            } else {
+                // Ignorar códigos que no tengan 16 caracteres
+                console.log("Código ignorado (longitud " + text.length + ")");
             }
-        ).catch(err => console.error("Error cámara:", err));
+        });
 
-        function checkReady() {
-            if(res.lat) console.log("GPS listo");
-        }
-
-        function enviarDatos() {
-            // El formato que tu bot ya espera en la línea 1058: SCAN_serial_lat_lon
+        function enviarAlBot() {
+            // El formato que tu bot espera en la línea 1058
             const payload = `SCAN_${res.sn}_${res.lat}_${res.lon}`;
             
-            // IMPORTANTE: Pon aquí el nombre de tu bot SIN el @
+            // REEMPLAZA 'Piquillin_Bot' por tu nombre de bot real
             const botUsername = "Agente_pqnetbot"; 
+            const link = `https://t.me/${botUsername}?start=${payload}`;
             
-            const deepLink = `https://t.me/${botUsername}?start=${payload}`;
-            
-            tg.openTelegramLink(deepLink);
+            tg.openTelegramLink(link);
             tg.close();
         }
     </script>
