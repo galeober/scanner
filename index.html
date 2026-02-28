@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Escáner de ONT</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -128,12 +128,16 @@
         let gpsListo        = false;
 
         // ── Escaneo ──────────────────────────────────────────────────────────
-        const html5QrCode = new Html5Qrcode("reader");
-        const config = { fps: 10, qrbox: { width: 280, height: 150 } };
+        // qrbox adaptado al ancho real del dispositivo
+        const vw     = Math.min(window.innerWidth - 32, 420);
+        const qbW    = Math.floor(vw * 0.85);
+        const qbH    = Math.floor(qbW * 0.45);
+
+        const html5QrCode = new Html5Qrcode("reader", { verbose: false });
 
         html5QrCode.start(
             { facingMode: "environment" },
-            config,
+            { fps: 10, qrbox: { width: qbW, height: qbH } },
             (decodedText) => {
                 // Código detectado: detener cámara y mostrar tarjeta
                 html5QrCode.stop().catch(() => {});
@@ -152,7 +156,8 @@
                 document.getElementById("status").innerText = "🔍 Buscando código…";
             }
         ).catch(err => {
-            document.getElementById("status").innerText = "❌ Error cámara: " + err;
+            const msg = (err && err.message) ? err.message : String(err);
+            document.getElementById("status").innerText = "❌ Error cámara: " + msg;
         });
 
         // ── GPS ───────────────────────────────────────────────────────────────
