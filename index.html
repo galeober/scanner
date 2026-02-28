@@ -2,223 +2,80 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Escáner de ONT</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scanner ONT</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  
-    <meta name="bot-username" content="BOT_USERNAME_AQUI">
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: var(--tg-theme-bg-color, #f4f4f4);
-            color: var(--tg-theme-text-color, #222);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 16px;
-            gap: 10px;
-        }
-        h2 { font-size: 1.1rem; }
-        #reader { width: 100%; max-width: 440px; border-radius: 10px; overflow: hidden; }
-        #status { font-size: 0.9rem; color: #888; text-align: center; min-height: 20px; }
-        #result-card {
-            display: none;
-            background: var(--tg-theme-secondary-bg-color, #fff);
-            border-radius: 12px;
-            padding: 14px 16px;
-            width: 100%;
-            max-width: 440px;
-        }
-        .field { margin-bottom: 10px; }
-        .field label { font-size: 0.7rem; text-transform: uppercase; color: #888; display: block; }
-        .field .val { font-size: 0.92rem; font-weight: 600; word-break: break-all; }
-        .ok   { color: #27ae60; }
-        .wait { color: #e67e22; }
-        .err  { color: #c0392b; }
-        #btn-enviar {
-            display: none;
-            width: 100%;
-            max-width: 440px;
-            padding: 13px;
-            font-size: 1rem;
-            font-weight: 600;
-            border: none;
-            border-radius: 10px;
-            background: var(--tg-theme-button-color, #2ea6ff);
-            color: var(--tg-theme-button-text-color, #fff);
-            cursor: pointer;
-        }
-        #btn-enviar:disabled { opacity: 0.45; }
-        #log {
-            width: 100%;
-            max-width: 440px;
-            background: #1e1e1e;
-            color: #0f0;
-            border-radius: 8px;
-            padding: 10px 12px;
-            font-size: 0.72rem;
-            font-family: monospace;
-            white-space: pre-wrap;
-            word-break: break-all;
-            min-height: 40px;
-            max-height: 180px;
-            overflow-y: auto;
-        }
+        body { font-family: sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; text-align: center; }
+        #reader { width: 100%; max-width: 500px; margin: auto; background: white; border-radius: 8px; overflow: hidden; }
+        .info { margin-top: 20px; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status { color: #666; font-size: 0.9em; margin-bottom: 10px; }
+        #btn-enviar { background: #0088cc; color: white; border: none; padding: 12px 24px; border-radius: 5px; font-size: 16px; display: none; width: 100%; cursor: pointer; }
     </style>
 </head>
 <body>
-    <h2>📷 Escanear ONT</h2>
-    <p id="status">Iniciando cámara…</p>
+
+    <h3>Registro de Equipo</h3>
     <div id="reader"></div>
 
-    <div id="result-card">
-        <h3 style="margin-bottom:10px">✅ Código detectado</h3>
-        <div class="field">
-            <label>Serial</label>
-            <span class="val" id="val-serial">—</span>
-        </div>
-        <div class="field">
-            <label>📍 GPS</label>
-            <span class="val wait" id="val-gps">Obteniendo ubicación…</span>
-        </div>
+    <div class="info">
+        <p id="status-gps" class="status">📍 Obteniendo ubicación GPS...</p>
+        <p id="status-scan" class="status">📷 Esperando código de barras...</p>
+        <button id="btn-enviar" onclick="enviarDatos()">✅ Confirmar y Enviar</button>
     </div>
-
-    <button id="btn-enviar" disabled>⏳ Esperando GPS…</button>
-    <div id="log">[ Log ]\n</div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand();
+        tg.expand(); // Expandir la app al máximo
 
-        function log(msg) {
-            const el = document.getElementById("log");
-            el.innerText += new Date().toLocaleTimeString() + " " + msg + "\n";
-            el.scrollTop = el.scrollHeight;
-        }
+        let datos = {
+            serial: null,
+            lat: null,
+            lon: null
+        };
 
-        log("SDK v" + tg.version + " | platform: " + tg.platform);
-        log("user.id: " + tg.initDataUnsafe?.user?.id);
-
-        let serialEscaneado = null;
-        let gpsData = null;
-
-        // ── Escaneo ───────────────────────────────────────────────────────────
-        const vw  = Math.min(window.innerWidth - 32, 440);
-        const qbW = Math.floor(vw * 0.85);
-        const qbH = Math.floor(qbW * 0.45);
-        const html5QrCode = new Html5Qrcode("reader", { verbose: false });
-
-        html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: qbW, height: qbH } },
-            (decoded) => {
-                html5QrCode.stop().catch(() => {});
-                serialEscaneado = decoded.trim();
-                log("Serial: " + serialEscaneado);
-                document.getElementById("status").innerText          = "";
-                document.getElementById("reader").style.display      = "none";
-                document.getElementById("result-card").style.display = "block";
-                document.getElementById("btn-enviar").style.display  = "block";
-                document.getElementById("val-serial").innerText      = serialEscaneado;
-                capturarGPS();
-            },
-            () => { document.getElementById("status").innerText = "🔍 Buscando código…"; }
-        ).catch(err => {
-            log("ERROR cámara: " + (err?.message || String(err)));
-            document.getElementById("status").innerText = "❌ Error cámara";
-        });
-
-        // ── GPS ───────────────────────────────────────────────────────────────
-        function capturarGPS() {
-            if (!navigator.geolocation) { habilitarEnvio(null); return; }
+        // 1. Obtener coordenadas GPS
+        if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
-                pos => {
-                    const lat = parseFloat(pos.coords.latitude.toFixed(7));
-                    const lon = parseFloat(pos.coords.longitude.toFixed(7));
-                    gpsData   = { lat, lon };
-                    log("GPS: " + lat + ", " + lon);
-                    const el  = document.getElementById("val-gps");
-                    el.className = "val ok";
-                    el.innerHTML = lat + ", " + lon + " ✅";
-                    habilitarEnvio(gpsData);
+                (pos) => {
+                    datos.lat = pos.coords.latitude;
+                    datos.lon = pos.coords.longitude;
+                    document.getElementById('status-gps').innerText = `📍 Ubicación capturada (${datos.lat.toFixed(4)}, ${datos.lon.toFixed(4)})`;
+                    validarProgreso();
                 },
-                err => {
-                    log("GPS no disponible: " + err.code);
-                    document.getElementById("val-gps").className = "val wait";
-                    document.getElementById("val-gps").innerText = "Sin GPS";
-                    habilitarEnvio(null);
-                },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                (err) => {
+                    document.getElementById('status-gps').innerText = "⚠️ Error GPS: Asegúrate de activar la ubicación";
+                    console.error(err);
+                }
             );
         }
 
-        function habilitarEnvio(coords) {
-            gpsData = coords;
-            const btn = document.getElementById("btn-enviar");
-            btn.disabled  = false;
-            btn.innerText = coords ? "📤 Enviar al bot" : "📤 Enviar sin GPS";
+        // 2. Configurar Escáner
+        const html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+
+        html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+            datos.serial = decodedText;
+            document.getElementById('status-scan').innerText = `📟 Serial: ${decodedText}`;
+            tg.HapticFeedback.notificationOccurred('success');
+            validarProgreso();
+        });
+
+        function validarProgreso() {
+            // Si ya tenemos el serial, permitimos enviar (el GPS es ideal pero opcional según tu lógica)
+            if (datos.serial) {
+                document.getElementById('btn-enviar').style.display = 'block';
+            }
         }
 
-        // ── Envío ─────────────────────────────────────────────────────────────
-        document.getElementById("btn-enviar").addEventListener("click", async () => {
-            if (!serialEscaneado) return;
-            const btn = document.getElementById("btn-enviar");
-            btn.disabled  = true;
-            btn.innerText = "⏳ Enviando…";
-
-            const payload = JSON.stringify({
-                serial: serialEscaneado,
-                lat:    gpsData?.lat ?? null,
-                lon:    gpsData?.lon ?? null,
-            });
-            log("Payload: " + payload);
-
-            // ── Intento 1: sendData (funciona si Mini App está configurada) ───
-            try {
-                log("Probando sendData()…");
-                tg.sendData(payload);
-                log("sendData OK");
-                return;  // Telegram cierra la WebApp automáticamente
-            } catch(e) {
-                log("sendData falló: " + e.message);
-            }
-
-            // ── Intento 2: deep link al bot con los datos codificados ─────────
-            // El bot recibe /start SCAN_... y lo procesa como un scan
-            const botUsername = document.querySelector("meta[name='bot-username']")?.content;
-            log("botUsername: " + botUsername);
-
-            if (!botUsername || botUsername === "BOT_USERNAME_AQUI") {
-                log("ERROR: falta bot-username en el meta tag");
-                btn.disabled  = false;
-                btn.innerText = "📤 Enviar al bot";
-                return;
-            }
-
-            // Codificar payload en base64 para el deep link (máx 64 chars para /start)
-            // Usamos solo serial + coordenadas comprimidas
-            const lat  = gpsData?.lat ?? "";
-            const lon  = gpsData?.lon ?? "";
-            const param = "SCAN_" + serialEscaneado + "_" + lat + "_" + lon;
-            // Limpiar caracteres no permitidos en deep link (solo A-Z a-z 0-9 _ -)
-            const safeParam = param.replace(/[^A-Za-z0-9_\-\.]/g, "_").substring(0, 64);
-            log("Deep link param: " + safeParam);
-
-            // Cerrar WebApp y abrir el bot con el deep link
-            const deepLink = `https://t.me/${botUsername}?start=${safeParam}`;
-            log("Abriendo: " + deepLink);
-
-            try {
-                tg.openLink(deepLink);
-                setTimeout(() => tg.close(), 1000);
-            } catch(e) {
-                log("openLink falló: " + e.message);
-                window.location.href = deepLink;
-            }
-        });
+        function enviarDatos() {
+            if (!datos.serial) return alert("Primero escanea el código");
+            
+            // Enviar JSON al bot y cerrar WebApp
+            // IMPORTANTE: sendData solo funciona con ReplyKeyboardMarkup
+            tg.sendData(JSON.stringify(datos));
+        }
     </script>
 </body>
 </html>
